@@ -1,44 +1,55 @@
-async function handleRequest(request: Request): Promise<Response> {
+const express = require('express');
+const app = express();
 
-  const url = new URL(request.url);
-  const pathname = url.pathname;
+app.use((req, res, next) => {
+    const pathname = req.url;
 
-  if (pathname === '/' || pathname === '/index.html') {
-    return new Response('Proxy is Running！Details：https://github.com/tech-shrimp/deno-api-proxy', {
-      status: 200,
-      headers: { 'Content-Type': 'text/html' }
-    });
-  } 
-  
-  const targetUrl = `https://${pathname}`;
-
-  try {
-    const headers = new Headers();
-    const allowedHeaders = ['accept', 'content-type', 'authorization'];
-    for (const [key, value] of request.headers.entries()) {
-      if (allowedHeaders.includes(key.toLowerCase())) {
-        headers.set(key, value);
-      }
+    if (pathname === '/' || pathname === '/index.html') {
+        res.status(200).setHeader('Content-Type', 'text/html');
+        res.send('Proxy is Running！Details：https://github.com/tech-shrimp/deno-api-proxy');
+        return;
     }
 
-    const response = await fetch(targetUrl, {
-      method: request.method,
-      headers: headers,
-      body: request.body
-    });
+    const targetUrl = `https://${pathname}`;
 
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.set('Referrer-Policy', 'no-referrer');
+    const allowedHeaders = ['accept', 'content-type', 'authorization'];
+    const headers = {};
 
-    return new Response(response.body, {
-      status: response.status,
-      headers: responseHeaders
-    });
+    for (const [key, value] of Object.entries(req.headers)) {
+        if (allowedHeaders.includes(key.toLowerCase())) {
+            headers[key] = value;
+        }
+    }
 
-  } catch (error) {
-    console.error('Failed to fetch:', error);
-    return new Response('Internal Server Error', { status: 500 });
-  }
-};
+    headers['Referrer-Policy'] = 'no-referrer';
 
-Deno.serve(handleRequest); 
+    const options = {
+        method: req.method,
+        headers: headers,
+    };
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+        options.body = req.body;
+    }
+
+    fetch(targetUrl, options)
+        .then(response => {
+            const responseHeaders = {};
+            for (const [key, value] of response.raw.headers.entries()) {
+                responseHeaders[key] = value;
+            }
+            responseHeaders['Access-Control-Allow-Origin'] = '*';
+            responseHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+            responseHeaders['Access-Control-Allow-Headers'] = 'X-Requested-With, content-type, authorization';
+
+            res.status(response.status);
+            res.headers = responseHeaders;
+            res.send(response.body);
+        })
+        .catch(error => {
+            console.error('Failed to fetch:', error);
+            res.status(500).send('Internal Server Error');
+        });
+});
+
+module.exports = app;
